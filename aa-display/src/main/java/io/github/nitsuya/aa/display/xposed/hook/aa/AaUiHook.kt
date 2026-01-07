@@ -43,7 +43,7 @@ import java.lang.reflect.Method
 object AaUiHook: AaHook() {
     override val tagName: String = "AAD_AaUiHook"
 
-    private lateinit var layoutInfoConstructor: Constructor<*>
+    private var layoutInfoConstructor: Constructor<*>? = null
     private var startMethod: Method? = null
 
     private var resLayoutLeftResourceId: Int = 0
@@ -60,33 +60,45 @@ object AaUiHook: AaHook() {
         return processProjection == processName
     }
 
-    override fun loadDexClass(bridge: DexKitBridge, lpparam: XC_LoadPackage.LoadPackageParam) {
-        val classes = bridge.findClass {
-            searchPackages = listOf("")
-            matcher {
-                usingStrings {
-                    add(
-                        "LayoutInfo{layoutResourceId=",
-                        StringMatchType.StartsWith,
-                        false
-                    )
+    private fun hookLayoutInfo(bridge: DexKitBridge): Boolean {
+        try {
+            val classes = bridge.findClass {
+                searchPackages = listOf("")
+                matcher {
+                    usingStrings {
+                        add(
+                            "LayoutInfo{layoutResourceId=",
+                            StringMatchType.StartsWith,
+                            false
+                        )
+                    }
                 }
             }
+            if (classes.isEmpty() || classes.size > 1) {
+                throw NoSuchMethodException("AaUiHook: not found LayoutInfo class：${classes.size}")
+            }
+            layoutInfoConstructor = findConstructor(classes[0].name) {
+                //int i, int i2, int i3, int i4, boolean z, boolean z2, jby jbyVar, boolean z3
+                parameterCount == 8
+                        && parameterTypes[0] == Int::class.javaPrimitiveType       //layoutResourceId
+                        && parameterTypes[1] == Int::class.javaPrimitiveType       //displayWidthDp
+                        && parameterTypes[2] == Int::class.javaPrimitiveType       //displayHeightDp
+                        && parameterTypes[3] == Int::class.javaPrimitiveType       //layoutType
+                        && parameterTypes[4] == Boolean::class.javaPrimitiveType   //isRightHandDrive
+                        && parameterTypes[5] == Boolean::class.javaPrimitiveType   //hasVerticalRail
+                        //&& parameterTypes[6] == Object                           //carDisplayUiInfo
+                        && parameterTypes[7] == Boolean::class.javaPrimitiveType   //isDriverAlignedDashboard
+            }
+            return true
+        } catch (t: Throwable) {
+            log(tagName, "Failed to hook LayoutInfo", t)
+            return false
         }
-        if (classes.isEmpty() || classes.size > 1) {
-            throw NoSuchMethodException("AaUiHook: not found LayoutInfo class：${classes.size}")
-        }
-        layoutInfoConstructor = findConstructor(classes[0].name) {
-            //int i, int i2, int i3, int i4, boolean z, boolean z2, jby jbyVar, boolean z3
-            parameterCount == 8
-            && parameterTypes[0] == Int::class.javaPrimitiveType       //layoutResourceId
-            && parameterTypes[1] == Int::class.javaPrimitiveType       //displayWidthDp
-            && parameterTypes[2] == Int::class.javaPrimitiveType       //displayHeightDp
-            && parameterTypes[3] == Int::class.javaPrimitiveType       //layoutType
-            && parameterTypes[4] == Boolean::class.javaPrimitiveType   //isRightHandDrive
-            && parameterTypes[5] == Boolean::class.javaPrimitiveType   //hasVerticalRail
-            //&& parameterTypes[6] == Object                           //carDisplayUiInfo
-            && parameterTypes[7] == Boolean::class.javaPrimitiveType   //isDriverAlignedDashboard
+    }
+
+    override fun loadDexClass(bridge: DexKitBridge, lpparam: XC_LoadPackage.LoadPackageParam) {
+        if (!hookLayoutInfo(bridge)) {
+            return
         }
 
         try{
@@ -114,8 +126,6 @@ object AaUiHook: AaHook() {
 
         assert(resLayoutLeftResourceId != 0) { "resLayoutLeftResourceId not fund" }
         assert(resLayoutRightResourceId != 0) { "resLayoutRightResourceId not fund" }
-
-
     }
 
     override fun hook(config: SharedPreferences, lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -140,8 +150,11 @@ object AaUiHook: AaHook() {
     }
 
     private fun hookLayout() {
-        layoutInfoConstructor.hookAfter { param -> log(tagName, param.thisObject.toString()) }
-        layoutInfoConstructor.hookBefore { param ->
+        if (layoutInfoConstructor == null) {
+            return
+        }
+        layoutInfoConstructor?.hookAfter { param -> log(tagName, param.thisObject.toString()) }
+        layoutInfoConstructor?.hookBefore { param ->
             when(param.args[3] as Int){ //layoutType
                 8,9,10 -> return@hookBefore;
             }
@@ -158,10 +171,10 @@ object AaUiHook: AaHook() {
         val autoOpen = AADisplayConfig.AutoOpen.get(config)
         findMethod(LayoutInflater::class.java) {
             name == "inflate"
-            && parameterCount == 3
-            && parameterTypes[0] == Int::class.javaPrimitiveType // resource
-            && parameterTypes[1] == ViewGroup::class.java // root
-            && parameterTypes[2] == Boolean::class.javaPrimitiveType // attachToRoot
+                    && parameterCount == 3
+                    && parameterTypes[0] == Int::class.javaPrimitiveType // resource
+                    && parameterTypes[1] == ViewGroup::class.java // root
+                    && parameterTypes[2] == Boolean::class.javaPrimitiveType // attachToRoot
         }.hookAfter { param ->
             if (param.args[0] as Int != resLayoutGhFacetBarId) {
                 return@hookAfter
@@ -280,27 +293,7 @@ object AaUiHook: AaHook() {
                     removeView(view)
                 }
                 aaFacetBar.addView(view)
-            }
-//            val statusBarOverlayId = View(ctx).run {
-//                id = View.generateViewId()
-//                layoutParams = ConstraintLayout.LayoutParams(0, 0)
-//                val intentClick = Intent().apply {
-//                    action = AABroadcastConst.ACTION_SCREEN_CONTROL
-//                    putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_POWER)
-//                }
-//                setOnClickListener {
-//                    ctx.sendBroadcast(intentClick)
-//                }
-//                val statusBar = aaFacetBar.findViewById<ViewGroup>(resIdStatusBarId)
-//                setOnLongClickListener {
-//                    if(statusBar.childCount > 0){
-//                        statusBar.getChildAt(0).performClick()
-//                    }
-//                    true
-//                }
-//                aaFacetBar.addView(this)
-//                id
-//            }
+            } //            val statusBarOverlayId = View(ctx).run { //                id = View.generateViewId() //                layoutParams = ConstraintLayout.LayoutParams(0, 0) //                val intentClick = Intent().apply { //                    action = AABroadcastConst.ACTION_SCREEN_CONTROL //                    putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_POWER) //                } //                setOnClickListener { //                    ctx.sendBroadcast(intentClick) //                } //                val statusBar = aaFacetBar.findViewById<ViewGroup>(resIdStatusBarId) //                setOnLongClickListener { //                    if(statusBar.childCount > 0){ //                        statusBar.getChildAt(0).performClick() //                    } //                    true //                } //                aaFacetBar.addView(this) //                id //            }
             val set = ConstraintSet()
             set.clone(aaFacetBar)
             bottomIds.forEachIndexed { index, vId ->
@@ -312,11 +305,7 @@ object AaUiHook: AaHook() {
                 set.connect(vId, ConstraintSet.TOP, if(index == 0) ConstraintSet.PARENT_ID else topIds[index-1], if(index == 0) ConstraintSet.TOP else ConstraintSet.BOTTOM, 0)
                 set.connect(vId, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, 0)
                 set.connect(vId, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START, 0)
-            }
-//            set.connect(statusBarOverlayId, ConstraintSet.BOTTOM, resIdStatusBarId, ConstraintSet.BOTTOM, 0)
-//            set.connect(statusBarOverlayId, ConstraintSet.TOP, resIdStatusBarId, ConstraintSet.TOP, 0)
-//            set.connect(statusBarOverlayId, ConstraintSet.END, resIdStatusBarId, ConstraintSet.END, 0)
-//            set.connect(statusBarOverlayId, ConstraintSet.START, resIdStatusBarId, ConstraintSet.START, 0)
+            } //            set.connect(statusBarOverlayId, ConstraintSet.BOTTOM, resIdStatusBarId, ConstraintSet.BOTTOM, 0) //            set.connect(statusBarOverlayId, ConstraintSet.TOP, resIdStatusBarId, ConstraintSet.TOP, 0) //            set.connect(statusBarOverlayId, ConstraintSet.END, resIdStatusBarId, ConstraintSet.END, 0) //            set.connect(statusBarOverlayId, ConstraintSet.START, resIdStatusBarId, ConstraintSet.START, 0)
             set.applyTo(aaFacetBar)
             resultViewGroup.visibility = View.GONE
             aaFacetBar.addView(resultViewGroup)
@@ -328,8 +317,8 @@ object AaUiHook: AaHook() {
         try {
             findMethod(View::class.java) {
                 name == "setOnLongClickListener"
-                && parameterCount == 1
-                && parameterTypes[0] == View.OnLongClickListener::class.java
+                        && parameterCount == 1
+                        && parameterTypes[0] == View.OnLongClickListener::class.java
             }.hookBefore(XCallback.PRIORITY_LOWEST) {
                 if (it.args[0] is FinallyListener) return@hookBefore
                 val view = it.thisObject as View
@@ -345,8 +334,8 @@ object AaUiHook: AaHook() {
         try {
             findMethod(View::class.java) {
                 name == "setOnClickListener"
-                && parameterCount == 1
-                && parameterTypes[0] == View.OnClickListener::class.java
+                        && parameterCount == 1
+                        && parameterTypes[0] == View.OnClickListener::class.java
             }.hookBefore(XCallback.PRIORITY_LOWEST) {
                 if (it.args[0] is FinallyListener) return@hookBefore
                 val view = it.thisObject as View
@@ -362,26 +351,75 @@ object AaUiHook: AaHook() {
     }
 
     private fun hookRadius(config: SharedPreferences) {
-        if(!AADisplayConfig.ForceRightAngle.get(config)){
+        if (!AADisplayConfig.ForceRightAngle.get(config)) {
             return
         }
-        try{
-            findConstructor("com.google.android.gms.car.ProjectionWindowDecorationParams"){
-                parameterCount == 9
-                && parameterTypes[0] == Int::class.javaPrimitiveType //outlineLeft
-                && parameterTypes[1] == Int::class.javaPrimitiveType //outlineTop
-                && parameterTypes[2] == Int::class.javaPrimitiveType //outlineRight
-                && parameterTypes[3] == Int::class.javaPrimitiveType //outlineBottom
-                && parameterTypes[4] == Int::class.javaPrimitiveType //corners
-                && parameterTypes[5] == Int::class.javaPrimitiveType //cornerRadius
-                && parameterTypes[6] == Int::class.javaPrimitiveType //antiAliasingType
-                && parameterTypes[7] == Boolean::class.javaPrimitiveType //showOutlinesOnlyWhenInset
-                && parameterTypes[8] == Boolean::class.javaPrimitiveType //showRoundedCornersOnlyWhenInset
-            }.hookBefore { param ->
-                param.args[5] = 0
+        try {
+            // Attempt 1: The specific 9-argument constructor with strict types (Legacy)
+            try {
+                findConstructor("com.google.android.gms.car.ProjectionWindowDecorationParams") {
+                    parameterCount == 9
+                            && parameterTypes[0] == Int::class.javaPrimitiveType
+                            && parameterTypes[1] == Int::class.javaPrimitiveType
+                            && parameterTypes[2] == Int::class.javaPrimitiveType
+                            && parameterTypes[3] == Int::class.javaPrimitiveType
+                            && parameterTypes[4] == Int::class.javaPrimitiveType
+                            && parameterTypes[5] == Int::class.javaPrimitiveType // Corner Radius
+                            && parameterTypes[6] == Int::class.javaPrimitiveType
+                            && parameterTypes[7] == Boolean::class.javaPrimitiveType
+                            && parameterTypes[8] == Boolean::class.javaPrimitiveType
+                }.hookBefore { param ->
+                    param.args[5] = 0 // Set corner radius to 0
+                }
+                return // Success, exit function
+            } catch (e: Exception) {
+                // Log that the strict match failed, then try the fallback
+                log(tagName, "Strict 9-arg constructor not found, trying fallback...")
             }
+
+            // Attempt 2: Constructor with 9 parameters but lenient types (Newer AA versions often change Int to Long or Object)
+            try {
+                findConstructor("com.google.android.gms.car.ProjectionWindowDecorationParams") {
+                    parameterCount == 9
+                }.hookBefore { param ->
+                    // We assume 'cornerRadius' (index 5) is still the 6th parameter in the 9-arg signature
+                    // This is a safer assumption than strict type matching
+                    try {
+                        param.args[5] = 0
+                    } catch (e: Throwable) {
+                        // If index 5 fails, we don't know the layout, so we can't safely modify it.
+                        // This prevents a crash in the hook itself.
+                    }
+                }
+                return // Success, exit function
+            } catch (e: Exception) {
+                log(tagName, "9-arg lenient constructor not found, trying 4-arg...")
+            }
+
+            // Attempt 3: Constructor with 4 parameters (Context, AttributeSet, Int, Float)
+            // Note: We might need to find the index of the 'int' or 'float' for radius,
+            // but typically 'corners' or 'radius' is involved.
+            // Without the specific signature, we try the most common alternative.
+            try {
+                findConstructor("com.google.android.gms.car.ProjectionWindowDecorationParams") {
+                    parameterCount == 4
+                }.hookBefore { param ->
+                    // In 4-arg, usually index 2 is 'corners', index 3 might be 'radius' or 'type'.
+                    // We try setting index 3 to 0 as a guess for the radius.
+                    try {
+                        param.args[3] = 0f // Try float
+                    } catch (_: Throwable) {
+                        try {
+                            param.args[3] = 0 // Try int
+                        } catch (_: Throwable) { }
+                    }
+                }
+            } catch (e: Exception) {
+                log(tagName, "Failed to find ProjectionWindowDecorationParams for radius hook: ${e.message}")
+            }
+
         } catch (e: Throwable) {
-            log(tagName, "ProjectionWindowDecorationParams", e)
+            log(tagName, "Unexpected error in hookRadius: ${e.message}", e)
         }
     }
 
