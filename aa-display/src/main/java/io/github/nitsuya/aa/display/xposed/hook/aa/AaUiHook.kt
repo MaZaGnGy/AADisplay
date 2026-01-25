@@ -75,19 +75,18 @@ object AaUiHook: AaHook() {
                 }
             }
             if (classes.isEmpty() || classes.size > 1) {
-                throw NoSuchMethodException("AaUiHook: not found LayoutInfo class：${classes.size}")
+                throw NoSuchMethodException("AaUiHook: not found LayoutInfo class: ${classes.size}")
             }
-            layoutInfoConstructor = findConstructor(classes[0].name) {
-                //int i, int i2, int i3, int i4, boolean z, boolean z2, jby jbyVar, boolean z3
-                parameterCount == 8
+            val className = classes[0].name
+            layoutInfoConstructor = findConstructor(className) {
+                // Support both 8-arg and 9-arg versions
+                (parameterCount == 8 || parameterCount == 9)
                         && parameterTypes[0] == Int::class.javaPrimitiveType       //layoutResourceId
                         && parameterTypes[1] == Int::class.javaPrimitiveType       //displayWidthDp
                         && parameterTypes[2] == Int::class.javaPrimitiveType       //displayHeightDp
                         && parameterTypes[3] == Int::class.javaPrimitiveType       //layoutType
                         && parameterTypes[4] == Boolean::class.javaPrimitiveType   //isRightHandDrive
                         && parameterTypes[5] == Boolean::class.javaPrimitiveType   //hasVerticalRail
-                        //&& parameterTypes[6] == Object                           //carDisplayUiInfo
-                        && parameterTypes[7] == Boolean::class.javaPrimitiveType   //isDriverAlignedDashboard
             }
             return true
         } catch (t: Throwable) {
@@ -377,23 +376,21 @@ object AaUiHook: AaHook() {
                 log(tagName, "Strict 9-arg constructor not found, trying fallback...")
             }
 
-            // Attempt 2: Constructor with 9 parameters but lenient types (Newer AA versions often change Int to Long or Object)
+            // Attempt 2: Constructor with 9 or 10 parameters (Standard AA signatures)
             try {
                 findConstructor("com.google.android.gms.car.ProjectionWindowDecorationParams") {
-                    parameterCount == 9
+                    parameterCount == 9 || parameterCount == 10
                 }.hookBefore { param ->
-                    // We assume 'cornerRadius' (index 5) is still the 6th parameter in the 9-arg signature
-                    // This is a safer assumption than strict type matching
+                    // Index 5 is typically the corner radius in both 9-arg and 10-arg signatures
                     try {
                         param.args[5] = 0
                     } catch (e: Throwable) {
-                        // If index 5 fails, we don't know the layout, so we can't safely modify it.
-                        // This prevents a crash in the hook itself.
+                        log(tagName, "Failed to set radius at index 5", e)
                     }
                 }
                 return // Success, exit function
             } catch (e: Exception) {
-                log(tagName, "9-arg lenient constructor not found, trying 4-arg...")
+                log(tagName, "9/10-arg constructor not found, trying 4-arg...")
             }
 
             // Attempt 3: Constructor with 4 parameters (Context, AttributeSet, Int, Float)
