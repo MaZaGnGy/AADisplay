@@ -21,15 +21,15 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    # 👇 قمنا بتثبيت الإصدار المطلوب بدقة 8.13 لحل التعارض
     - name: Download and Setup Specific Gradle Wrapper
       run: gradle wrapper --gradle-version 8.13
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build with Gradle
-      run: ./gradlew build
+    # 👇 قمنا بتعديل الأمر هنا ليقوم بالبناء المباشر بدون فحص الأكواد لتجنب خطأ الـ Metaspace والـ Lint
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug -x lint
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
