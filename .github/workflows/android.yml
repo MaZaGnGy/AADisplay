@@ -21,9 +21,9 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    # 👇 قمنا بتحديد إصدار 8.0 لمنع سحب إصدار 9.5.1 غير المتوافق مع المشروع
-    - name: Download and Setup Compatible Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.0
+    # 👇 قمنا بتثبيت الإصدار المطلوب بدقة 8.13 لحل التعارض
+    - name: Download and Setup Specific Gradle Wrapper
+      run: gradle wrapper --gradle-version 8.13
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
