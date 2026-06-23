@@ -24,10 +24,16 @@ jobs:
     - name: Download and Setup Specific Gradle Wrapper
       run: gradle wrapper --gradle-version 8.13
 
+    # 👇 خطوة حاسمة لزيادة حجم الذاكرة وتفادي خطأ الـ Metaspace
+    - name: Configure Gradle Memory Settings
+      run: |
+        mkdir -p ~/.gradle
+        echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError" >> ~/.gradle/gradle.properties
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    # 👇 قمنا بتعديل الأمر هنا ليقوم بالبناء المباشر بدون فحص الأكواد لتجنب خطأ الـ Metaspace والـ Lint
+    # 👇 البناء المباشر للـ APK مع تخطي الـ Lint والاعتماد على الذاكرة الموسعة
     - name: Build Debug APK
       run: ./gradlew assembleDebug -x lint
 
